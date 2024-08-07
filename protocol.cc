@@ -41,7 +41,11 @@ void keyExpansion(const unsigned char* key, int keySize, unsigned char* roundKey
 
     // Copying the initial key into the first N words of W
     for (int i = 0; i < N; i++) {
-        // Each word is 4 bytes, assuming key is little endian, adjust if your architecture is different
+        // Each word is 4 bytes, key is little endian
+        // Example: Key: "abcdefghijklmnop"
+        // W[0] = (0x61 << 24) | (0x62 << 16) | (0x63 << 8) | 0x64
+        // W[0] = 0x61000000 | 0x00620000 | 0x00006300 | 0x00000064 = 0x61626364
+        // W = W[0] = 0x61626364 W[1] = 0x65666768 W[2] = 0x696a6b6c W[3] = 0x6d6e6f70
         W[i] = (uint32_t(key[4*i]) << 24) | (uint32_t(key[4*i + 1]) << 16) | (uint32_t(key[4*i + 2]) << 8) | uint32_t(key[4*i + 3]);
     }
     printW(W, N);
