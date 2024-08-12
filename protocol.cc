@@ -2,7 +2,8 @@
 #include <string>
 #include <iomanip> // Include for std::setw and std::setfill
 #include <cstdint>
-
+#include <vector>
+#include <array>
 
 // rcon
 static const uint32_t rcon[] = {
@@ -39,6 +40,20 @@ void printW(const uint32_t* W, int size) {
         std::cout << "W[" << i << "] = 0x"
                   << std::hex << std::setfill('0') << std::setw(8) // Format as hexadecimal
                   << W[i] << std::endl;
+    }
+}
+
+void printStates(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& states) {
+    int blockNumber = 0;
+    for (const auto& state : states) {
+        std::cout << "Block " << blockNumber++ << ":\n";
+        for (const auto& row : state) {
+            for (auto val : row) {
+                std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(val) << " ";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
     }
 }
 
@@ -124,6 +139,31 @@ void keyExpansion(const unsigned char* key, int keySize, unsigned char* roundKey
 
 }
 
+std::vector<std::array<std::array<uint8_t, 4>, 4>> loadPlaintextIntoStates(const std::string& message) {
+    size_t len = message.length();
+    // Round up to nearest multiple of 16 
+    size_t paddedLength = ((len + 15) / 16) * 16;     
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> states((paddedLength / 16), {{{0}}});
+
+    // Copy message into a padded vector
+    std::vector<uint8_t> paddedMessage(paddedLength, 0x00);
+    std::copy(message.begin(), message.end(), paddedMessage.begin());
+
+    // Apply padding
+    uint8_t paddingValue = paddedLength - len;
+    std::fill(paddedMessage.begin() + len, paddedMessage.end(), paddingValue);
+
+    // Load bytes into states
+    for (size_t block = 0; block < paddedMessage.size() / 16; ++block) {
+        for (int i = 0; i < 16; i++) {
+            states[block][i % 4][i / 4] = paddedMessage[block * 16 + i];
+        }
+    }
+
+    return states;
+}
+
+
 std::string encryption(const std::string& message, const std::string& key, int keyLength) {
     // Determine number of rounds plus one more round key than rounds
     int R = (keyLength == 128 ? 11 : (keyLength == 192 ? 13 : 15));
@@ -135,6 +175,15 @@ std::string encryption(const std::string& message, const std::string& key, int k
     const uint32_t* W = reinterpret_cast<const uint32_t*>(roundKeys);
     // Print the expanded keys to verify
     printW(W, 4 * R); 
+    
+    // State for AddRoundKey step
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> states = loadPlaintextIntoStates(message);
+    printStates(states); 
+
+    for (auto& state : states) {
+        // Perform AES encryption on each state
+        // Include all AES steps: AddRoundKey, SubBytes, ShiftRows, MixColumns, etc.
+    }
 
     std::string ciphertext;
     // Encryption logic here
