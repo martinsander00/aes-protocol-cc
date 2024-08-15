@@ -163,6 +163,22 @@ std::vector<std::array<std::array<uint8_t, 4>, 4>> loadPlaintextIntoStates(const
     return states;
 }
 
+std::vector<std::array<std::array<uint8_t, 4>, 4>> AddRoundKey(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& messageStates, const uint32_t* roundKey) {
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> xoredMessageStates(messageStates.size()); // Create a new vector of states
+
+    int blockIndex = 0;
+    for (const auto& state : messageStates) { // Iterate over each state block
+        for (int col = 0; col < 4; ++col) { // Iterate over columns
+            for (int row = 0; row < 4; ++row) { // Iterate over rows within each column
+                xoredMessageStates[blockIndex][row][col] = state[row][col] ^ ((roundKey[col] >> (8 * (3 - row))) & 0xFF); // Apply XOR with appropriate byte from round key
+            }
+        }
+        blockIndex++; // Move to the next block in newStates
+    }
+    return xoredMessageStates; // Return the newly modified vector of state matrices
+}
+
+
 
 std::string encryption(const std::string& message, const std::string& key, int keyLength) {
     // Determine number of rounds plus one more round key than rounds
@@ -177,13 +193,12 @@ std::string encryption(const std::string& message, const std::string& key, int k
     printW(W, 4 * R); 
     
     // State for AddRoundKey step
-    std::vector<std::array<std::array<uint8_t, 4>, 4>> states = loadPlaintextIntoStates(message);
-    printStates(states); 
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> messageStates = loadPlaintextIntoStates(message);
+    printStates(messageStates); 
 
-    for (auto& state : states) {
-        // Perform AES encryption on each state
-        // Include all AES steps: AddRoundKey, SubBytes, ShiftRows, MixColumns, etc.
-    }
+    auto xoredMessageStates = AddRoundKey(messageStates, W); // Get modified states after initial round key
+    printStates(xoredMessageStates); // Debug: Print states after initial AddRoundKey
+
 
     std::string ciphertext;
     // Encryption logic here
