@@ -196,7 +196,7 @@ std::string encryption(const std::string& message, const std::string& key, int k
     std::vector<std::array<std::array<uint8_t, 4>, 4>> messageStates = loadPlaintextIntoStates(message);
     printStates(messageStates); 
 
-    auto xoredMessageStates = AddRoundKey(messageStates, W); // Get modified states after initial round key
+    auto xoredMessageStates = addRoundKey(messageStates, W); // Get modified states after initial round key
     printStates(xoredMessageStates); // Debug: Print states after initial AddRoundKey
 
 
