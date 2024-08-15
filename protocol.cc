@@ -163,7 +163,7 @@ std::vector<std::array<std::array<uint8_t, 4>, 4>> loadPlaintextIntoStates(const
     return states;
 }
 
-std::vector<std::array<std::array<uint8_t, 4>, 4>> AddRoundKey(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& messageStates, const uint32_t* roundKey) {
+std::vector<std::array<std::array<uint8_t, 4>, 4>> addRoundKey(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& messageStates, const uint32_t* roundKey) {
     std::vector<std::array<std::array<uint8_t, 4>, 4>> xoredMessageStates(messageStates.size()); // Create a new vector of states
 
     int blockIndex = 0;
