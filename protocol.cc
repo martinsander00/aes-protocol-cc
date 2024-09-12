@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 
 // rcon
 static const uint32_t rcon[] = {
@@ -33,6 +36,51 @@ static const uint8_t sbox[256] = {
     0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16
 };
 
+static uint8_t inv_sbox[256]; // Array to store the inverse S-box
+
+std::string toHexString(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& states) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0'); // Set hexadecimal output and zero padding
+    for (const auto& state : states) {
+        for (const auto& row : state) {
+            for (auto val : row) {
+                ss << std::setw(2) << static_cast<int>(val); // Format each byte as two hex digits
+            }
+        }
+    }
+    return ss.str(); // Convert stringstream to string and return
+}
+
+std::vector<std::array<std::array<uint8_t, 4>, 4>> convertHexToStates(const std::string& hex) {
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> states;
+    int numBlocks = hex.length() / 32;
+    states.resize(numBlocks);
+
+    for (int b = 0; b < numBlocks; b++) {
+        for (int i = 0; i < 16; i++) {
+            int row = i % 4;
+            int col = i / 4;
+            std::string byteString = hex.substr(b * 32 + i * 2, 2);
+            states[b][col][row] = static_cast<uint8_t>(std::stoul(byteString, nullptr, 16));
+        }
+    }
+
+    return states;
+}
+
+
+std::string convertStatesToText(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& states) {
+    std::string plaintext;
+    for (const auto& block : states) {
+        for (int col = 0; col < 4; col++) {
+            for (int row = 0; row < 4; row++) {
+                plaintext += static_cast<char>(block[row][col]);
+            }
+        }
+    }
+    return plaintext;
+}
+
 // Encryption
 void printW(const uint32_t* W, int size) {
     std::cout << "Printing W:" << std::endl;
@@ -43,19 +91,16 @@ void printW(const uint32_t* W, int size) {
     }
 }
 
-void printStates(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& states) {
-    int blockNumber = 0;
-    for (const auto& state : states) {
-        std::cout << "Block " << blockNumber++ << ":\n";
-        for (const auto& row : state) {
-            for (auto val : row) {
-                std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(val) << " ";
-            }
-            std::cout << std::endl;
+void printState(const std::array<std::array<uint8_t, 4>, 4>& state, std::ostream& os) {
+    for (const auto& row : state) {
+        for (auto val : row) {
+            os << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(val) << " ";
         }
-        std::cout << std::endl;
+        os << std::endl;
     }
+    os << std::endl;
 }
+
 
 uint32_t RotWord(uint32_t word) {
     return (word << 8) | (word >> 24);
@@ -134,9 +179,7 @@ void keyExpansion(const unsigned char* key, int keySize, unsigned char* roundKey
         }
         // printf("New W[%d]: 0x%08X\n", i, W[i]);
     }
-    
     // printW(W, N * R);
-
 }
 
 std::vector<std::array<std::array<uint8_t, 4>, 4>> loadPlaintextIntoStates(const std::string& message) {
@@ -163,57 +206,255 @@ std::vector<std::array<std::array<uint8_t, 4>, 4>> loadPlaintextIntoStates(const
     return states;
 }
 
-std::vector<std::array<std::array<uint8_t, 4>, 4>> addRoundKey(const std::vector<std::array<std::array<uint8_t, 4>, 4>>& messageStates, const uint32_t* roundKey) {
-    std::vector<std::array<std::array<uint8_t, 4>, 4>> xoredMessageStates(messageStates.size()); // Create a new vector of states
-
-    int blockIndex = 0;
-    for (const auto& state : messageStates) { // Iterate over each state block
-        for (int col = 0; col < 4; ++col) { // Iterate over columns
-            for (int row = 0; row < 4; ++row) { // Iterate over rows within each column
-                xoredMessageStates[blockIndex][row][col] = state[row][col] ^ ((roundKey[col] >> (8 * (3 - row))) & 0xFF); // Apply XOR with appropriate byte from round key
-            }
+void addRoundKey(std::array<std::array<uint8_t, 4>, 4>& state, const uint32_t* roundKey) {
+    for (int col = 0; col < 4; ++col) {  // Iterate over columns
+        for (int row = 0; row < 4; ++row) {  // Iterate over rows within each column
+            state[row][col] ^= ((roundKey[col] >> (8 * (3 - row))) & 0xFF);  // Apply XOR with appropriate byte from round key
         }
-        blockIndex++; // Move to the next block in newStates
     }
-    return xoredMessageStates; // Return the newly modified vector of state matrices
+}
+
+void subBytes(std::array<std::array<uint8_t, 4>, 4>& state) {
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            state[i][j] = sbox[state[i][j]];
+        }   
+    }
+}
+
+void shiftRows(std::array<std::array<uint8_t, 4>, 4>& state) {
+    std::array<uint8_t, 4> tempRow;
+
+    // Row 1: Shift left by 1
+    tempRow[0] = state[1][1];
+    tempRow[1] = state[1][2];
+    tempRow[2] = state[1][3];
+    tempRow[3] = state[1][0];
+    state[1] = tempRow;
+
+    // Row 2: Shift left by 2
+    tempRow[0] = state[2][2];
+    tempRow[1] = state[2][3];
+    tempRow[2] = state[2][0];
+    tempRow[3] = state[2][1];
+    state[2] = tempRow;
+
+    // Row 3: Shift left by 3 (or right by 1, equivalent)
+    tempRow[0] = state[3][3];
+    tempRow[1] = state[3][0];
+    tempRow[2] = state[3][1];
+    tempRow[3] = state[3][2];
+    state[3] = tempRow;
+}
+
+uint8_t gmul(uint8_t a, uint8_t b) {
+    uint8_t p = 0;
+    for (int i = 0; i < 8; i++) {
+        if (b & 1) p ^= a; // Add 'a' to 'p' if the lowest bit of 'b' is set
+        bool hi_bit_set = (a & 0x80); // Check if highest bit of 'a' is set
+        a <<= 1; // Multiply 'a' by 'x' (shift left)
+        if (hi_bit_set) a ^= 0x1b; // If overflow, reduce modulo (0x1b corresponds to the reduction polynomial)
+        b >>= 1; // Prepare next bit of 'b'
+    }
+    return p;
 }
 
 
+void mixColumns(std::array<std::array<uint8_t, 4>, 4>& state) {
+    std::array<uint8_t, 4> column;
+    for (int i = 0; i < 4; i++) { // For each column
+        for (int j = 0; j < 4; j++) { // Calculate the new byte for each position in the column
+            column[j] = gmul(0x02, state[j][i])
+                      ^ gmul(0x03, state[(j+1)%4][i])
+                      ^ state[(j+2)%4][i]
+                      ^ state[(j+3)%4][i];
+        }
+        for (int j = 0; j < 4; j++) { // Update the state with the new values
+            state[j][i] = column[j];
+        }
+    }
+}
+
 
 std::string encryption(const std::string& message, const std::string& key, int keyLength) {
-    // Determine number of rounds plus one more round key than rounds
-    int R = (keyLength == 128 ? 11 : (keyLength == 192 ? 13 : 15));
-
-    unsigned char roundKeys[240]; // Maximum size needed for AES-256
+    int R = (keyLength == 128 ? 10 : (keyLength == 192 ? 12 : 14));
+    unsigned char roundKeys[240];
     keyExpansion((unsigned char*)key.c_str(), keyLength, roundKeys);
-
-    // Convert roundKeys to uint32_t* for printing
     const uint32_t* W = reinterpret_cast<const uint32_t*>(roundKeys);
-    // Print the expanded keys to verify
-    printW(W, 4 * R); 
-    
-    // State for AddRoundKey step
+
     std::vector<std::array<std::array<uint8_t, 4>, 4>> messageStates = loadPlaintextIntoStates(message);
-    printStates(messageStates); 
+    std::ofstream outFile("output.txt");
 
-    auto xoredMessageStates = addRoundKey(messageStates, W); // Get modified states after initial round key
-    printStates(xoredMessageStates); // Debug: Print states after initial AddRoundKey
+    outFile << "Initial message state:\n";
+    for (auto& state : messageStates) {
+        printState(state, outFile);
+    }
 
+    for (auto& state : messageStates) {
+        addRoundKey(state, W);  // Initial round key
+        outFile << "After initial AddRoundKey:\n";
+        printState(state, outFile);
+    }
 
-    std::string ciphertext;
-    // Encryption logic here
+    for (int round = 1; round < R; ++round) {
+        for (auto& state : messageStates) {
+            subBytes(state);
+            outFile << "After SubBytes in round " << round << ":\n";
+            printState(state, outFile);
+
+            shiftRows(state);
+            outFile << "After ShiftRows in round " << round << ":\n";
+            printState(state, outFile);
+
+            if (round != R) {
+                mixColumns(state);
+                outFile << "After MixColumns in round " << round << ":\n";
+                printState(state, outFile);
+            }
+
+            addRoundKey(state, W + round * 4);
+            outFile << "After AddRoundKey in round " << round << ":\n";
+            printState(state, outFile);
+        }
+    }
+
+    // Final round (no MixColumns)
+    for (auto& state : messageStates) {
+        subBytes(state);
+        outFile << "Final Round - After SubBytes:\n";
+        printState(state, outFile);
+
+        shiftRows(state);
+        outFile << "Final Round - After ShiftRows:\n";
+        printState(state, outFile);
+
+        addRoundKey(state, W + R * 4);
+        outFile << "Final Round - After AddRoundKey:\n";
+        printState(state, outFile);
+    }
+
+    outFile.close();
+    
+    std::string ciphertext = toHexString(messageStates);  // Convert to hex string
     return ciphertext;
 }
 
 
-// Decryption
-std::string decryption(const std::string& ciphertext, const std::string& key) {
-    std::string message;
-    return message;
+
+//-----------------------------------------------------------------------------//
+
+
+void invSubBytes(std::array<std::array<uint8_t, 4>, 4>& state) {
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            state[i][j] = inv_sbox[state[i][j]];
+        }
+    }
+}
+
+void generateInvSBox() {
+    for (int i = 0; i < 256; i++) {
+        inv_sbox[sbox[i]] = i;
+    }
+}
+
+void invShiftRows(std::array<std::array<uint8_t, 4>, 4>& state) {
+    std::array<uint8_t, 4> tempRow;
+
+    // Row 1: Shift right by 1
+    tempRow[0] = state[1][3];
+    tempRow[1] = state[1][0];
+    tempRow[2] = state[1][1];
+    tempRow[3] = state[1][2];
+    state[1] = tempRow;
+
+    // Row 2: Shift right by 2
+    tempRow[0] = state[2][2];
+    tempRow[1] = state[2][3];
+    tempRow[2] = state[2][0];
+    tempRow[3] = state[2][1];
+    state[2] = tempRow;
+
+    // Row 3: Shift right by 3 (or left by 1, equivalent)
+    tempRow[0] = state[3][1];
+    tempRow[1] = state[3][2];
+    tempRow[2] = state[3][3];
+    tempRow[3] = state[3][0];
+    state[3] = tempRow;
+}
+
+void invMixColumns(std::array<std::array<uint8_t, 4>, 4>& state) {
+    std::array<uint8_t, 4> column;
+    for (int i = 0; i < 4; i++) { // For each column
+        for (int j = 0; j < 4; j++) {
+            column[j] = gmul(0x0e, state[j][i])
+                      ^ gmul(0x0b, state[(j+1)%4][i])
+                      ^ gmul(0x0d, state[(j+2)%4][i])
+                      ^ gmul(0x09, state[(j+3)%4][i]);
+        }
+        for (int j = 0; j < 4; j++) { // Update the state with the new values
+            state[j][i] = column[j];
+        }
+    }
 }
 
 
+// Decryption
+std::string decryption(const std::string& ciphertext, const std::string& key, int keyLength) {
+    int R = (keyLength == 128 ? 10 : (keyLength == 192 ? 12 : 14));
+    unsigned char roundKeys[240];
+    keyExpansion((unsigned char*)key.c_str(), keyLength, roundKeys);
+    const uint32_t* W = reinterpret_cast<const uint32_t*>(roundKeys);
+
+    // Assuming you have a way to convert the hex string back to state array
+    std::vector<std::array<std::array<uint8_t, 4>, 4>> messageStates = convertHexToStates(ciphertext);
+
+    std::ofstream outFile("decrypt_output.txt");
+    outFile << "Initial ciphertext state:\n";
+    for (auto& state : messageStates) {
+        printState(state, outFile);
+    }
+
+    for (auto& state : messageStates) {
+        addRoundKey(state, W + R * 4);  // Initial round key for decryption
+        outFile << "After initial AddRoundKey:\n";
+        printState(state, outFile);
+    }
+
+    // Decryption rounds
+    for (int round = R; round > 0; --round) {
+        for (auto& state : messageStates) {
+            if (round != R) {  // Skip InvMixColumns in the final round
+                invMixColumns(state);
+                outFile << "After InvMixColumns in round " << round << ":\n";
+                printState(state, outFile);
+            }
+
+            invShiftRows(state);
+            outFile << "After InvShiftRows in round " << round << ":\n";
+            printState(state, outFile);
+
+            invSubBytes(state);
+            outFile << "After InvSubBytes in round " << round << ":\n";
+            printState(state, outFile);
+
+            addRoundKey(state, W + (round - 1) * 4);
+            outFile << "After AddRoundKey in round " << round << ":\n";
+            printState(state, outFile);
+        }
+    }
+
+    outFile.close();
+
+    std::string plaintext = convertStatesToText(messageStates);  // Convert state array back to text
+    return plaintext;
+}
+
+
+
+
 int main() {
+    generateInvSBox();
     std::string message, key, ciphertext;
     int keyLength;
 
@@ -233,7 +474,8 @@ int main() {
     std::cout << "Key length in bits: " << keyLength * 8 << std::endl;
     ciphertext = encryption(message, key, keyLength * 8); // keyLength now correctly reflects the bit length
     std::cout << "Ciphertext: " << ciphertext << std::endl;
-
+    message = decryption(ciphertext, key, keyLength * 8);
+    std::cout << "Message: " << message << std::endl;
     return 0;
 }
 
