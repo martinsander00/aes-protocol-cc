@@ -14,7 +14,8 @@ g++ -std=c++11 -o protocol protocol.cc
 ```
 ### Usage
 Run the Program:
-```./protocol
+```bash
+./protocol
 ```
 
 Follow the prompts to enter your message, key, and key length (128, 192, or 256 bits) to perform encryption or decryption.
